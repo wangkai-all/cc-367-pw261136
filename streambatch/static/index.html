@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>流批交接实验台 · Stream/Batch Handoff Lab</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface-1: #fcfcfb; --surface-2: #f3f2ef; --surface-3: #e9e7e1;
+  --ink-1: #0b0b0b; --ink-2: #52514e; --ink-3: #8a8880;
+  --line: #ddd9d0;
+  --series-stream: #2a78d6;   /* 蓝：流式侧 */
+  --series-batch: #eb6834;    /* 橙：批处理侧 */
+  --good: #1baf7a; --warn: #eda100; --critical: #e34948;
+  --chip: #eef3fb;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --surface-1: #1a1a19; --surface-2: #232321; --surface-3: #2e2e2b;
+    --ink-1: #f0efec; --ink-2: #c3c2b7; --ink-3: #8e8c83;
+    --line: #383834;
+    --series-stream: #3987e5; --series-batch: #d95926;
+    --good: #199e70; --warn: #c98500; --critical: #e66767;
+    --chip: #20304a;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; font: 14px/1.5 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--surface-2); color: var(--ink-1);
+}
+header { padding: 18px 24px; background: var(--surface-1); border-bottom: 1px solid var(--line); }
+header h1 { margin: 0 0 4px; font-size: 19px; }
+header p { margin: 0; color: var(--ink-2); font-size: 13px; }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 20px 24px 60px; }
+.grid { display: grid; gap: 16px; }
+.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.cols-2 { grid-template-columns: 1fr 1fr; }
+@media (max-width: 900px) { .cols-4, .cols-2 { grid-template-columns: 1fr; } }
+.card { background: var(--surface-1); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+.card h2 { margin: 0 0 12px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.card h2 .sub { font-weight: 400; color: var(--ink-3); font-size: 12px; }
+.tile .label { color: var(--ink-2); font-size: 12px; }
+.tile .value { font-size: 24px; font-weight: 650; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.tile .hint { color: var(--ink-3); font-size: 11px; margin-top: 2px; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
+.dot.stream { background: var(--series-stream); }
+.dot.batch { background: var(--series-batch); }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th, td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--ink-2); font-weight: 600; position: sticky; top: 0; background: var(--surface-1); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.table-scroll { max-height: 380px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.pos { color: var(--good); } .neg { color: var(--critical); }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.badge.stream { background: var(--chip); color: var(--series-stream); }
+.badge.batch { background: rgba(235,104,52,.14); color: var(--series-batch); }
+.badge.state-running { background: rgba(27,175,122,.16); color: var(--good); }
+.badge.state-committed { background: var(--surface-3); color: var(--ink-2); }
+.badge.state-crashed { background: rgba(227,73,72,.16); color: var(--critical); }
+.badge.state-superseded { background: rgba(237,161,0,.16); color: var(--warn); }
+button, select, input {
+  font: inherit; border: 1px solid var(--line); background: var(--surface-2);
+  color: var(--ink-1); border-radius: 7px; padding: 7px 11px; cursor: pointer;
+}
+button:hover { border-color: var(--ink-3); }
+button.primary { background: var(--series-stream); color: #fff; border-color: transparent; }
+button.danger { background: var(--critical); color: #fff; border-color: transparent; }
+button.ghost { background: transparent; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.row + .row { margin-top: 8px; }
+label.fld { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--ink-2); }
+label.fld input, label.fld select { min-width: 110px; }
+.bar { height: 22px; display: flex; border-radius: 5px; overflow: hidden; min-width: 120px; background: var(--surface-3); }
+.bar .seg-stream { background: var(--series-stream); }
+.bar .seg-batch { background: var(--series-batch); }
+.bar .seg { transition: width .25s; }
+.legend { display: flex; gap: 16px; font-size: 12px; color: var(--ink-2); }
+.tabs { display: flex; gap: 4px; margin-bottom: 10px; }
+.tabs button { border-radius: 7px 7px 0 0; }
+.tabs button.active { background: var(--series-stream); color: #fff; border-color: transparent; }
+.ok { color: var(--good); font-weight: 650; } .bad { color: var(--critical); font-weight: 650; }
+.muted { color: var(--ink-3); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.boundary { background: var(--surface-2); border-left: 3px solid var(--series-batch); padding: 9px 12px; border-radius: 0 7px 7px 0; color: var(--ink-2); font-size: 12.5px; margin: 8px 0; }
+.pill { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--surface-3); color: var(--ink-2); }
+#toast { position: fixed; bottom: 22px; right: 22px; max-width: 380px; z-index: 50; display: grid; gap: 8px; }
+.toast-item { background: var(--ink-1); color: var(--surface-1); padding: 10px 14px; border-radius: 8px; font-size: 12.5px; box-shadow: 0 6px 24px rgba(0,0,0,.25); }
+.toast-item.err { background: var(--critical); color: #fff; }
+.detail-box { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-top: 10px; background: var(--surface-2); }
+.small { font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>流批交接实验台 <span class="pill">Stream/Batch Handoff Lab</span></h1>
+  <p>同一业务事件：白天流式汇总 · 夜间批次补算 · 边界可解释 · 重叠不双算 · 支持迟到更正与删除 · 差额可追到具体事件</p>
+</header>
+<div class="wrap grid">
+
+  <!-- 服务与总览 -->
+  <div class="grid cols-4">
+    <div class="card tile"><div class="label">服务状态</div><div class="value" id="svcState" style="font-size:16px">检测中…</div><div class="hint">ingest / batch / web 三进程</div></div>
+    <div class="card tile"><div class="label"><span class="dot stream"></span> 流式侧合计（分）</div><div class="value" id="streamTotal">–</div><div class="hint">未锚定贡献 stream_agg</div></div>
+    <div class="card tile"><div class="label"><span class="dot batch"></span> 批处理侧合计（分）</div><div class="value" id="batchTotal">–</div><div class="hint">锚点 + replace 快照</div></div>
+    <div class="card tile"><div class="label">全局合计（分）</div><div class="value" id="grandTotal">–</div><div class="hint" id="ledgerHint">台账口径 –</div></div>
+  </div>
+
+  <!-- 控制面 -->
+  <div class="card">
+    <h2>控制台 <span class="sub">操作批处理进程与在线接入；事件始终经接入服务落库</span></h2>
+    <div class="row">
+      <button id="btnPause">暂停批处理</button>
+      <button id="btnResume">恢复批处理</button>
+      <span class="pill" id="ctlState">控制面：–</span>
+      <span class="pill" id="faultState">故障：none</span>
+    </div>
+    <div class="row">
+      <label class="fld">交接方式
+        <select id="batchMode"><option value="ledger">ledger 逐条贡献（选定）</option><option value="replace">replace 区间整体替换（对照）</option></select>
+      </label>
+      <button class="primary" id="btnCreateBatch">创建夜间批次</button>
+      <button class="ghost" id="btnRefresh">刷新</button>
+      <label class="fld">自动刷新
+        <select id="autoRefresh"><option value="0">关</option><option value="3" selected>3s</option><option value="8">8s</option></select>
+      </label>
+    </div>
+    <div class="row">
+      <label class="fld">模拟提交中断点
+        <select id="failStage">
+          <option value="none">不注入</option>
+          <option value="before_commit">首批提交前崩溃</option>
+          <option value="mid_anchor">逐桶锚定中途崩溃</option>
+        </select>
+      </label>
+      <label class="fld">触发桶序号（mid 用）<input id="failBucket" type="number" value="1" min="0" style="min-width:80px"></label>
+      <button class="danger" id="btnArm">武装故障</button>
+      <span class="small muted">武装后由独立 batch 进程触发：进程退出码 7，再点「创建/等待接管」即从锚点恢复</span>
+    </div>
+    <div class="row">
+      <button id="btnSeed">① 生成随机白天交易（40 笔）</button>
+      <button id="btnClock">拨快时钟 1 小时（入夜）</button>
+    </div>
+    <div class="row">
+      <label class="fld">交易号 <input id="evTxn" placeholder="如 T-DEMO-1"></label>
+      <label class="fld">商户维度 <input id="evDim" value="M-001"></label>
+      <label class="fld">金额（分）<input id="evAmount" type="number" value="88888"></label>
+      <label class="fld">事件时间(秒,空=当前)<input id="evTime" placeholder="可回填旧桶=迟到"></label>
+      <label class="fld">操作
+        <select id="evOp"><option value="upsert">upsert 新增/更正</option><option value="delete">delete 删除</option></select>
+      </label>
+      <button class="primary" id="btnIngest">② 在线提交事件</button>
+    </div>
+  </div>
+
+  <!-- 对账 -->
+  <div class="card">
+    <h2>三方对账 <span class="sub">原始事件重算 / 逐条台账 / 物化视图——不是只比总数，逐桶逐维度比对并可下钻</span></h2>
+    <div id="reconBox" class="small">加载中…</div>
+  </div>
+
+  <!-- 桶视图 -->
+  <div class="card">
+    <h2>按小时桶的流/批分区 <span class="sub">
+      <span class="legend"><span><span class="dot stream"></span> 流式 stream_agg</span>
+      <span><span class="dot batch"></span> 批处理 锚点/快照</span></span></span></h2>
+    <div class="table-scroll"><table id="bucketTable">
+      <thead><tr><th>小时桶</th><th>模式</th><th>批次</th><th class="num">流式部分</th><th class="num">批处理部分</th><th class="num">合计</th><th>分区占比</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </div>
+
+  <!-- 逐条贡献明细 -->
+  <div class="card">
+    <h2>逐条贡献明细（带符号 delta）<span class="sub">切换查看交接前后 / 流批两侧</span></h2>
+    <div class="tabs">
+      <button data-side="" class="active">全部</button>
+      <button data-side="stream">仅流式侧（batch_id 为空）</button>
+      <button data-side="batch">仅批处理侧（已锚定）</button>
+    </div>
+    <div class="row">
+      <label class="fld">过滤桶 <input id="fBucket" placeholder="如 158400"></label>
+      <label class="fld">过滤维度 <input id="fDim" placeholder="如 M-001"></label>
+      <label class="fld">过滤交易号 <input id="fTxn" placeholder="txn_id"></label>
+      <button id="btnFilter">应用过滤</button>
+      <button class="ghost" id="btnClearFilter">清除</button>
+      <span class="pill" id="ledgerCount">0 行</span>
+    </div>
+    <div class="table-scroll" style="margin-top:10px"><table id="ledgerTable">
+      <thead><tr><th>台账id</th><th>交易号</th><th>版本</th><th>动作</th><th>维度</th><th>桶</th><th class="num">带符号贡献</th><th>接入seq</th><th>归属</th><th>批次</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </div>
+
+  <div class="grid cols-2">
+    <!-- 批次 -->
+    <div class="card">
+      <h2>批次与交接边界</h2>
+      <div class="table-scroll" style="max-height:300px"><table id="batchTable">
+        <thead><tr><th>#</th><th>方式</th><th>状态</th><th class="num">桶</th><th class="num">行</th><th class="num">金额</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <div id="batchDetail"></div>
+    </div>
+    <!-- 事件 -->
+    <div class="card">
+      <h2>原始事件（含更正/删除版本链）</h2>
+      <div class="table-scroll" style="max-height:420px"><table id="eventTable">
+        <thead><tr><th>交易号</th><th>版本</th><th>操作</th><th>维度</th><th class="num">金额</th><th>状态</th><th>桶</th><th>seq</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- 审计 -->
+  <div class="card">
+    <h2>审计日志 <span class="sub">关键动作留痕，最近 30 条</span></h2>
+    <div class="table-scroll" style="max-height:260px"><table id="auditTable">
+      <thead><tr><th>时间</th><th>角色</th><th>动作</th><th>详情</th></tr></thead><tbody></tbody>
+    </table></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = async (path, opts) => {
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.ok === false) throw new Error(j.error || JSON.stringify(j));
+  return j;
+};
+const toast = (msg, err) => {
+  const d = document.createElement('div');
+  d.className = 'toast-item' + (err ? ' err' : '');
+  d.textContent = msg; $('#toast').appendChild(d);
+  setTimeout(() => d.remove(), 4200);
+};
+const fmt = n => (n ?? 0).toLocaleString('zh-CN');
+const fmtTime = ts => new Date(ts * 1000).toLocaleTimeString('zh-CN', { hour12: false });
+let sideFilter = '', activeFilters = {};
+
+async function loadOverview() {
+  const o = await api('/api/overview');
+  $('#streamTotal').textContent = fmt(o.stream_total);
+  $('#batchTotal').textContent = fmt(o.batch_total);
+  $('#grandTotal').textContent = fmt(o.grand_total);
+  $('#ledgerHint').textContent = `台账口径 ${fmt(o.ledger_grand_total)} · 事件 ${o.counts.events} / 活跃 ${o.counts.active_txns} / 台账行 ${o.counts.ledger_rows}`;
+}
+async function loadControl() {
+  const c = await api('/api/control');
+  $('#ctlState').textContent = '控制面：' + c.state;
+  $('#faultState').textContent = '故障：' + c.fail_stage + (c.fail_bucket != null ? ' @桶' + c.fail_bucket : '');
+  $('#btnPause').disabled = c.state === 'paused';
+  $('#btnResume').disabled = c.state === 'running';
+}
+async function loadRecon() {
+  const r = await api('/api/reconcile');
+  const t = r.totals, inv = r.partition_invariants;
+  let html = `<p>对账结论：${r.ok ? '<span class="ok">✅ 三方逐桶逐维度全部一致</span>' : '<span class="bad">❌ 捕获差额</span>'}</p>
+   <p class="mono">原始事件重算 A=${fmt(t.raw_events)} ｜ 逐条台账 B=${fmt(t.ledger)} ｜ 物化视图 C=${fmt(t.materialized)}（分）</p>
+   <p class="small">流式分区守恒 ${inv.stream_ledger_vs_materialized.ok ? '✅' : '❌'}
+   （台账未锚定 ${fmt(inv.stream_ledger_vs_materialized.ledger)} = 物化 ${fmt(inv.stream_ledger_vs_materialized.materialized)}）
+   ｜ 批处理分区守恒 ${inv.batch_ledger_vs_anchors.ok ? '✅' : '❌'}
+   （${fmt(inv.batch_ledger_vs_anchors.ledger)} = 锚点 ${fmt(inv.batch_ledger_vs_anchors.anchors)}）
+   ｜ replace快照+迟到 ${inv.replace_snapshot_plus_late_vs_raw.ok ? '✅' : '❌'}</p>`;
+  if (r.group_differences.length) {
+    html += '<div class="detail-box"><b>组级差额（可继续按桶/维度下钻）</b><table><thead><tr><th>桶</th><th>维度</th><th class="num">A原始</th><th class="num">B台账</th><th class="num">C物化</th><th class="num">C-A差额</th></tr></thead><tbody>';
+    html += r.group_differences.map(d => `<tr><td>${d.bucket}</td><td>${d.dim}</td><td class="num">${fmt(d.raw_events)}</td><td class="num">${fmt(d.ledger_sum)}</td><td class="num">${fmt(d.materialized)}</td><td class="num ${d.materialized_minus_raw>0?'pos':'neg'}">${fmt(d.materialized_minus_raw)}</td></tr>`).join('');
+    html += '</tbody></table></div>';
+  }
+  if (r.trace && r.trace.length) {
+    html += '<div class="detail-box"><b>差额下钻到交易（应有净贡献 vs 台账净贡献）</b><table><thead><tr><th>交易号</th><th>桶</th><th>维度</th><th>版本</th><th>状态</th><th class="num">应有(events)</th><th class="num">实际(ledger)</th><th class="num">差额</th></tr></thead><tbody>';
+    html += r.trace.map(f => `<tr><td class="mono">${f.txn_id}</td><td>${f.bucket}</td><td>${f.dim}</td><td>${f.version}</td><td>${f.status}</td><td class="num">${fmt(f.expected_from_events)}</td><td class="num">${fmt(f.actual_in_ledger)}</td><td class="num ${f.difference>0?'pos':'neg'}">${fmt(f.difference)}</td></tr>`).join('');
+    html += '</tbody></table></div>';
+  }
+  $('#reconBox').innerHTML = html;
+}
+async function loadBuckets() {
+  const rows = await api('/api/buckets');
+  const max = Math.max(1, ...rows.map(r => Math.abs(r.total)));
+  $('#bucketTable tbody').innerHTML = rows.map(r => {
+    const sw = Math.max(0, Math.abs(r.stream_amount) / max * 100);
+    const bw = Math.max(0, Math.abs(r.batch_amount) / max * 100);
+    return `<tr>
+      <td class="mono">${r.bucket}<br><span class="muted small">${new Date(r.bucket*1000).toISOString().substr(11,5)}Z</span></td>
+      <td>${r.mode ? '<span class="pill">'+r.mode+'</span>' : '<span class="muted">未交接</span>'}</td>
+      <td>${(r.batch_ids||[]).join(',') || '–'}</td>
+      <td class="num">${fmt(r.stream_amount)}</td>
+      <td class="num">${fmt(r.batch_amount)}</td>
+      <td class="num"><b>${fmt(r.total)}</b></td>
+      <td><div class="bar" title="流式 ${fmt(r.stream_amount)} / 批 ${fmt(r.batch_amount)}">
+        <div class="seg seg-stream" style="width:${sw}%"></div><div class="seg seg-batch" style="width:${bw}%"></div></div></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="7" class="muted">暂无数据，先点「生成随机白天交易」</td></tr>';
+}
+async function loadLedger() {
+  const q = new URLSearchParams();
+  if (sideFilter) q.set('side', sideFilter);
+  Object.entries(activeFilters).forEach(([k, v]) => v && q.set(k, v));
+  const rows = await api('/api/ledger?' + q.toString());
+  $('#ledgerCount').textContent = rows.length + ' 行';
+  $('#ledgerTable tbody').innerHTML = rows.map(r => `<tr>
+    <td>${r.id}</td><td class="mono">${r.txn_id}</td><td>${r.version}</td>
+    <td>${r.op === 'reverse' ? '<span class="neg">reverse 冲销</span>' : r.op === 'forward' ? '<span class="pos">forward 正向</span>' : r.op}</td>
+    <td>${r.dim}</td><td class="mono">${r.bucket}</td>
+    <td class="num ${r.delta > 0 ? 'pos' : r.delta < 0 ? 'neg' : ''}">${r.delta > 0 ? '+' : ''}${fmt(r.delta)}</td>
+    <td>${r.ingest_seq}</td>
+    <td>${r.batch_id == null ? '<span class="badge stream">流式</span>' : '<span class="badge batch">批处理</span>'}</td>
+    <td>${r.batch_id ?? '–'}</td></tr>`).join('') || '<tr><td colspan="10" class="muted">无匹配贡献行</td></tr>';
+}
+async function loadEvents() {
+  const rows = await api('/api/events');
+  $('#eventTable tbody').innerHTML = rows.map(r => `<tr>
+    <td class="mono">${r.txn_id}</td><td>${r.version}</td><td>${r.op}</td><td>${r.dim}</td>
+    <td class="num">${fmt(r.amount)}</td>
+    <td>${r.status === 'active' ? '<span class="pos">active</span>' : '<span class="neg">deleted</span>'}</td>
+    <td class="mono">${r.bucket}</td><td>${r.ingest_seq}</td></tr>`).join('');
+}
+async function loadBatches() {
+  const rows = await api('/api/batches');
+  $('#batchTable tbody').innerHTML = rows.map(r => `<tr style="cursor:pointer" onclick="showBatch(${r.id})">
+    <td>#${r.id}</td><td>${r.mode}</td>
+    <td><span class="badge state-${r.state}">${r.state}</span></td>
+    <td class="num">${r.bucket_count}</td><td class="num">${r.anchored_rows}</td>
+    <td class="num">${fmt(r.anchored_amount)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">尚无批次</td></tr>';
+}
+window.showBatch = async id => {
+  const d = await api('/api/batches/' + id);
+  let html = `<div class="detail-box">
+    <b>批次 #${d.run.id}（${d.run.mode} / ${d.run.state}）</b>
+    <div class="boundary">${d.run.boundary_explained || ''}<br>
+    水位 event_time &lt; <b>${d.run.watermark_event_time}</b> ｜ 快照 ingest_seq ≤ <b>${d.run.snapshot_ingest_seq}</b></div>`;
+  if (d.anchors && d.anchors.length) {
+    html += '<b>逐桶锚点（每桶独立事务，崩溃恢复依据）</b><table><thead><tr><th>桶</th><th>维度</th><th class="num">行数</th><th class="num">金额</th></tr></thead><tbody>'
+      + d.anchors.map(a => `<tr><td class="mono">${a.bucket}</td><td>${a.dim}</td><td class="num">${a.row_count}</td><td class="num">${fmt(a.amount)}</td></tr>`).join('') + '</tbody></table>';
+  }
+  if (d.replace_snapshots && d.replace_snapshots.length) {
+    html += '<b>整体替换快照（仅桶合计，无逐条明细）</b><table><thead><tr><th>桶</th><th>维度</th><th class="num">合计</th></tr></thead><tbody>'
+      + d.replace_snapshots.map(a => `<tr><td class="mono">${a.bucket}</td><td>${a.dim}</td><td class="num">${fmt(a.total)}</td></tr>`).join('') + '</tbody></table>';
+  }
+  if (d.contributions && d.contributions.length) {
+    html += `<details><summary>该批锚定的 ${d.contributions.length} 条逐条贡献</summary><table><thead><tr><th>交易</th><th>版本</th><th>动作</th><th>维度</th><th>桶</th><th class="num">delta</th></tr></thead><tbody>`
+      + d.contributions.map(c => `<tr><td class="mono">${c.txn_id}</td><td>${c.version}</td><td>${c.op}</td><td>${c.dim}</td><td class="mono">${c.bucket}</td><td class="num">${fmt(c.delta)}</td></tr>`).join('') + '</tbody></table></details>';
+  }
+  $('#batchDetail').innerHTML = html + '</div>';
+};
+async function loadAudit() {
+  const rows = await api('/api/audit');
+  $('#auditTable tbody').innerHTML = rows.map(r =>
+    `<tr><td>${fmtTime(r.ts)}</td><td>${r.actor}</td><td>${r.action}</td><td class="mono small">${r.detail}</td></tr>`).join('');
+}
+async function checkServices() {
+  try {
+    const [w, i] = await Promise.all([api('/health'), fetch('http://127.0.0.1:8101/health').then(r => r.json()).catch(() => null)]);
+    $('#svcState').innerHTML = (w.ok ? '<span class="ok">web ●</span> ' : '') + (i && i.ok ? '<span class="ok">ingest ●</span> ' : '<span class="bad">ingest ○ 未运行</span> ') + '<span class="ok">batch(共享库轮询)</span>';
+  } catch { $('#svcState').innerHTML = '<span class="bad">web 异常</span>'; }
+}
+async function refreshAll() {
+  try { await Promise.all([loadOverview(), loadControl(), loadRecon(), loadBuckets(), loadLedger(), loadEvents(), loadBatches(), loadAudit(), checkServices()]); }
+  catch (e) { toast('刷新失败：' + e.message, true); }
+}
+
+// 事件绑定
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.remove('active'));
+  b.classList.add('active'); sideFilter = b.dataset.side; loadLedger();
+});
+$('#btnFilter').onclick = () => {
+  activeFilters = { bucket: $('#fBucket').value.trim(), dim: $('#fDim').value.trim(), txn: $('#fTxn').value.trim() };
+  loadLedger();
+};
+$('#btnClearFilter').onclick = () => { ['fBucket','fDim','fTxn'].forEach(id => $('#'+id).value=''); activeFilters = {}; loadLedger(); };
+$('#btnRefresh').onclick = refreshAll;
+$('#btnPause').onclick = async () => { await api('/api/control', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({paused:true})}); toast('批处理已暂停：在线接入不受影响'); refreshAll(); };
+$('#btnResume').onclick = async () => { await api('/api/control', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({paused:false})}); toast('批处理已恢复'); refreshAll(); };
+$('#btnCreateBatch').onclick = async () => {
+  try { const j = await api('/api/batches', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ mode: $('#batchMode').value })});
+    toast('已创建批次 #' + j.run_id + '，等待独立 batch 进程接管（常驻模式自动处理）'); refreshAll();
+  } catch (e) { toast(e.message, true); }
+};
+$('#btnArm').onclick = async () => {
+  const stage = $('#failStage').value, bucket = $('#failBucket').value;
+  await api('/api/fault', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ fail_stage: stage, fail_bucket: bucket === '' ? null : Number(bucket) })});
+  toast(stage === 'none' ? '已解除故障武装' : '故障已武装：' + stage); refreshAll();
+};
+$('#btnSeed').onclick = async () => {
+  // 生成 40 笔随机交易：金额/商户/时间全随机（由接入服务落库）
+  const rng = (() => { let s = Date.now() & 0xffffffff; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; })();
+  const now = Math.floor(Date.now()/1000), events = [];
+  const dims = ['M-001','M-002','M-003','M-004','M-005'];
+  for (let k = 0; k < 40; k++) {
+    const id = 'T-' + Math.random().toString(36).slice(2,10).toUpperCase();
+    events.push({ txn_id: id, dim: dims[Math.floor(rng()*dims.length)], amount: 100 + Math.floor(rng()*999899), event_time: now - Math.floor(rng()*3*3600) });
+  }
+  try { await api('/api/proxy/events/bulk', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ events })});
+    toast('已通过接入服务写入 40 笔随机交易'); refreshAll();
+  } catch (e) { toast(e.message, true); }
+};
+$('#btnClock').onclick = async () => {
+  try { const j = await api('/api/proxy/clock', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ advance_seconds: 3600 })});
+    toast('虚拟时钟拨到 ' + j.clock_now + '（入夜，新批次水位将高于白天事件）'); refreshAll();
+  } catch (e) { toast(e.message, true); }
+};
+$('#btnIngest').onclick = async () => {
+  const body = { txn_id: $('#evTxn').value.trim(), dim: $('#evDim').value.trim(), amount: Number($('#evAmount').value), op: $('#evOp').value };
+  const t = $('#evTime').value.trim(); if (t) body.event_time = Number(t);
+  if (!body.txn_id) return toast('请填写交易号', true);
+  try { const j = await api('/api/proxy/events', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    toast('已接入 ' + j.event.txn_id + ' v' + j.event.version + '（seq ' + j.event.ingest_seq + '，产生 ' + j.event.deltas.length + ' 条带符号贡献）'); refreshAll();
+  } catch (e) { toast(e.message, true); }
+};
+let timer = null;
+$('#autoRefresh').onchange = () => { clearInterval(timer); const s = Number($('#autoRefresh').value); if (s) timer = setInterval(refreshAll, s*1000); };
+$('#autoRefresh').dispatchEvent(new Event('change'));
+refreshAll();
+</script>
+</body>
+</html>
